@@ -8,15 +8,14 @@
 
 new (class _ {
   constructor() {
-    const version = "0.0.1";
+    const version = "0.0.2";
+    const alives = new Map();
     const codeMap = new Map();
     const breeze = new BroadcastChannel("breeze");
-    /** 用于存储当前服务器中所有在线的WebSocket对象
-     * @type {Set<WebSocket>}
-     */
-    const alives = new Set();
+
 
     const ADMIN_KEY = Deno.env.get("ADMIN_KEY");
+
 
     class HTMLElement {
       static html(currentOrigin) {
@@ -181,7 +180,7 @@ new (class _ {
               style.remove();
             </script>
             <script id="base" type="module" src="/$Web.Base"></script>
-          </html>`;
+          </html>`.replace(/^\s*[\r\n]/gm, "").replace(/\s+/g, ' ');
       }
       static manifest(currentOrigin) {
         return {
@@ -220,7 +219,7 @@ new (class _ {
             <path d="M14.0809 14.1489C11.2909 12.2889 6.74094 12.2889 3.93094 14.1489C2.66094 14.9989 1.96094 16.1489 1.96094 17.3789C1.96094 18.6089 2.66094 19.7489 3.92094 20.5889C5.32094 21.5289 7.16094 21.9989 9.00094 21.9989C10.8409 21.9989 12.6809 21.5289 14.0809 20.5889C15.3409 19.7389 16.0409 18.5989 16.0409 17.3589C16.0309 16.1289 15.3409 14.9889 14.0809 14.1489Z" fill="#292D32"/>
             <path d="M19.9894 7.33815C20.1494 9.27815 18.7694 10.9781 16.8594 11.2081C16.8494 11.2081 16.8494 11.2081 16.8394 11.2081H16.8094C16.7494 11.2081 16.6894 11.2081 16.6394 11.2281C15.6694 11.2781 14.7794 10.9681 14.1094 10.3981C15.1394 9.47815 15.7294 8.09815 15.6094 6.59815C15.5394 5.78815 15.2594 5.04815 14.8394 4.41815C15.2194 4.22815 15.6594 4.10815 16.1094 4.06815C18.0694 3.89815 19.8194 5.35815 19.9894 7.33815Z" fill="#292D32"/>
             <path d="M21.9883 16.5904C21.9083 17.5604 21.2883 18.4004 20.2483 18.9704C19.2483 19.5204 17.9883 19.7804 16.7383 19.7504C17.4583 19.1004 17.8783 18.2904 17.9583 17.4304C18.0583 16.1904 17.4683 15.0004 16.2883 14.0504C15.6183 13.5204 14.8383 13.1004 13.9883 12.7904C16.1983 12.1504 18.9783 12.5804 20.6883 13.9604C21.6083 14.7004 22.0783 15.6304 21.9883 16.5904Z" fill="#292D32"/>
-          </svg>`;
+          </svg>`.replace(/^\s*[\r\n]/gm, "").replace(/\s+/g, ' ');
       }
       static async icon(source, format = "png") {
         const { Image } = await import("https://deno.land/x/imagescript@1.3.0/mod.ts");
@@ -240,6 +239,8 @@ new (class _ {
         return blob;
       }
     }
+
+
     class $WebBase extends HTMLElement {
       /**
        * @typedef {Object} Zone
@@ -250,8 +251,16 @@ new (class _ {
 
       /**@type {Zone} */
       static zone = {};
+      static isServerNode = false;
+      static fire(type, detail) {
+        globalThis.dispatchEvent(new CustomEvent(type, { detail: detail }));
+      }
+      static on(type, callback) {
+        return globalThis.addEventListener(type, callback, false);
+      }
       constructor() {
         super();
+        this.rare = "web-base";
         /**@type {ShadowRoot} */
         this.root = this.attachShadow({ mode: 'open' });
         this.sheet = new CSSStyleSheet();
@@ -278,10 +287,17 @@ new (class _ {
           globalThis[className] = this;
         }
         if (className === "$WebBase") { await this.#boot(); }
+        return [className, tagName];
       };
       static async $new(options = undefined) {
-        await this.$define();
-        return new this(options);
+        const nameArray = await this.$define();
+        const rareInstance = this.zone.rareMap.get(nameArray[1]);
+        if (rareInstance) { return rareInstance; }
+        const instance = new this(options);
+        if (instance.rare) {
+          this.zone.rareMap.set(instance.rare, instance);
+        }
+        return instance;
       };
       static async #boot() {
         /*-----------------注册紧急恢复事件--------------------*/
@@ -337,8 +353,12 @@ new (class _ {
             }
           });
         })();
+        /*-----------------设置全局唯一元素控制器--------------------*/
+        this.zone.rareMap = new Map();
         /*-----------------招募临时工人--------------------*/
         const recruitmentQuantity = navigator.hardwareConcurrency ? navigator.hardwareConcurrency - 2 : 2;
+        this.zone.casualWorkersReportCount = 0;
+        this.zone.casualWorkersDone = new Promise((resolve) => { this.zone.casualWorkersDoneResolve = resolve; });
         this.zone.casualWorkersMap = new Map(
           Array.from({ length: recruitmentQuantity }, (_, index) => {
             const name = `No_${index + 1}CWer`;
@@ -346,23 +366,41 @@ new (class _ {
             return [name, casualWorker];
           })
         );
-        console.log(this.zone);
         /*-----------------加入虚拟总线--------------------*/
         this.zone.bus = new BroadcastChannel("BUS");
         this.zone.bus.onmessage = (event) => {
-          const { to, from, name, type, content } = event.data;
-          if (to === "Main") {
+          const { to, from, type, content } = event.data;
+          if (to === "MainAvenue") {
             switch (from) {
-              case "CasualWorker": {
+              case "ProxyServer": {
+                switch (type) {
+                  case "requestLatestNews": {
+                    $WebBase.fire("requestLatestNews", content);
+                    break;
+                  }
+                }
+                break;
+              }
+              default: {
                 switch (type) {
                   case "Report": {
-                    const CWQuote = this.zone.casualWorkersMap.get(name);
+                    const CWQuote = this.zone.casualWorkersMap.get(from);
                     CWQuote.status = content;
-                    console.log(this.zone.casualWorkersMap);
+                    this.zone.casualWorkersReportCount++;
+                    if (this.zone.casualWorkersReportCount === recruitmentQuantity) {
+                      this.zone.casualWorkersDoneResolve();
+                    }
+                    break;
+                  }
+                  case "receiveConfig": {
+                    this.isServerNode = content;
+                    if (!content) {
+                      this.zone.bus.postMessage({ to: "ProxyServer", from: "MainAvenue", type: "requestLatestNews" });
+                    }
                     break;
                   }
                   default: {
-                    console.log(`临时工${name}发来了一个未知类型的消息`);
+                    console.log(`临时工${from}发来了一个未知类型的消息`);
                     break;
                   }
                 }
@@ -391,22 +429,59 @@ new (class _ {
         for (const script of scripts) {
           script.remove();
         }
-        // document.body.appendChild(await $SudokuGrid.$new($ArticleList));
-        document.body.appendChild(await $SudokuGrid.$new($NotFound));
+        document.body.appendChild(await $SudokuGrid.$new($ControlPanel));
       }
-    }
-    codeMap.set("$WebBase", $WebBase);
+    } codeMap.set("$WebBase", $WebBase);
+
+
     function $ProxyServer() {
-      self.RECO_ZONE = "Proxy";
-      self.zone = {};
+      self.RECO_ZONE = "ProxyServer";
       const CACHE_NAME = "VERSION";
-      self.zone.bus = new BroadcastChannel("BUS");
-      self.zone.bus.onmessage = (event) => {
-        const { to, from, name, type, content } = event.data;
-        if (to === "Proxy") {
+
+      /**
+       * @typedef {Object} TransEngine
+       * @property {WebSocket} socket - 用于与服务器通信的WebSocket
+       * @property {Promise<void>} socketDone - 用于判断WebSocket是否已经准备好
+       * @property {Array<Promise>} transQueue - 用于存储等待被解决的消息Promise
+       * @property {Map<string, function>} transSolver - 用于存储消息Promise的resolver
+       * @property {function} transmit - 用于向其他线程发送消息
+       * @property {function} createSocket - 用于创建WebSocket
+       * @private {number|undefined} reconnectPulse - 用于存储重连的定时器
+       * @private {function} isConnected - 用于判断WebSocket是否已经连接
+       * @private {function} isConnecting - 用于判断WebSocket是否正在连接
+       */
+
+      /**
+       * @typedef {Object} ProxyZone
+       * @property {BroadcastChannel} bus - 用于与其他线程通信的广播频道
+       * @property {TransEngine} transEngine - 用于与其他线程通信的传输引擎
+       */
+
+      /**@type {ProxyZone} */
+      const zone = {};
+      zone.transEngine = new $TransEngine();
+      zone.bus = new BroadcastChannel("BUS");
+      zone.bus.onmessage = (event) => {
+        const { to, from, type, content } = event.data;
+        if (to === "ProxyServer") {
           switch (from) {
-            case "Main": {
+            case "MainAvenue": {
               switch (type) {
+                case "applyStatus": {
+                  const message = {
+                    type: "applyStatus",
+                    key: content,
+                  };
+                  zone.transEngine.transmit(message);
+                  break;
+                }
+                case "requestLatestNews": {
+                  const message = {
+                    type: "requestLatestNews",
+                  };
+                  zone.transEngine.transmit(message);
+                  break;
+                }
                 default: {
                   console.log(`主线程发来了一个未知类型的消息`, content);
                   break;
@@ -417,13 +492,17 @@ new (class _ {
           }
         }
       };
-      self.zone.transEngine = new $TransEngine();
+
       self.addEventListener("top", (_event) => {
         console.log("代理服务器顶级事件触发");
         const de = new $DataEngine();
         console.log(de);
       });
       self.dispatchEvent(new Event("top"));
+
+      $TransEngine.on("requestLatestNews", (event) => {
+        zone.bus.postMessage({ to: "MainAvenue", from: "ProxyServer", type: "requestLatestNews", content: event.detail });
+      });
 
       self.addEventListener("install", () => { // 安装服务工作线程时缓存指定资源
         self.skipWaiting(); // 强制当前处于等待状态的脚本立即被激活
@@ -484,16 +563,50 @@ new (class _ {
           }
         }
       });
-    }
-    codeMap.set("$ProxyServer", $ProxyServer);
+    } codeMap.set("$ProxyServer", $ProxyServer);
+
+
     async function $CasualWorker() {
-      self.RECO_ZONE = "Casual";
+      self.RECO_ZONE = "CasualWorker";
       self.zone = {};
       self.zone.bus = new BroadcastChannel("BUS");
-      self.zone.bus.onmessage = (event) => {
-        const { to, from, type, content } = event.data;
-        if (to === "Casual") {
+      self.zone.bus.onmessage = async (event) => {
+        const { to, from, type, content = undefined } = event.data;
+        if (to === self.name) {
           switch (from) {
+            case "MainAvenue": {
+              switch (type) {
+                case "getConfig": {
+                  // 在opfs中获取config.json文件
+                  const draftHandle = await self.zone.dataEngine.root.getFileHandle("config.json", { create: true });
+                  const accessHandle = await draftHandle.createSyncAccessHandle();
+                  const fileSize = accessHandle.getSize();
+                  if (fileSize === 0) {
+                    const message = '{"serverNode":false}';
+                    const encoder = new TextEncoder();
+                    const encodedMessage = encoder.encode(message);
+                    accessHandle.write(encodedMessage, { at: 0 });
+                    accessHandle.flush();
+                    accessHandle.close();
+                    self.zone.bus.postMessage({ to: "MainAvenue", from: self.name, type: "receiveConfig", content: false });
+                  } else {
+                    const buffer = new DataView(new ArrayBuffer(fileSize));
+                    accessHandle.read(buffer, { at: 0 });
+                    const textDecoder = new TextDecoder();
+                    const text = textDecoder.decode(buffer);
+                    const config = JSON.parse(text);
+                    accessHandle.close();
+                    self.zone.bus.postMessage({ to: "MainAvenue", from: self.name, type: "receiveConfig", content: config.serverNode });
+                  }
+                  break;
+                }
+                default: {
+                  console.log(`${self.name}: ${from}发来了一个未知类型的消息`, content);
+                  break;
+                }
+              }
+              break;
+            }
             case "ProxyServer": {
               switch (type) {
                 default: {
@@ -507,27 +620,160 @@ new (class _ {
         }
       };
       self.zone.dataEngine = await $DataEngine.new();
-      console.log(self.zone);
-      self.zone.bus.postMessage({ to: "Main", from: "CasualWorker", name: self.name, type: "Report", content: "Activated" });
-    }
-    codeMap.set("$CasualWorker", $CasualWorker);
+      self.zone.bus.postMessage({ to: "MainAvenue", from: self.name, type: "Report", content: "Activated" });
+    } codeMap.set("$CasualWorker", $CasualWorker);
 
     // #region Source
 
-    class $ArticleList extends $WebBase {
-      constructor() { super() }
-      connectedCallback() {
+    function $capitalize(str) {
+      return str.charAt(0) === "$" ? str.charAt(0) + str.charAt(1).toUpperCase() + str.slice(2) : str.charAt(0).toUpperCase() + str.slice(1);
+    }; codeMap.set("$capitalize", $capitalize);
+
+
+    class $ControlPanel extends $WebBase {
+      constructor() {
+        super();
+        this.rare = "control-panel";
+        this.template.innerHTML = /*html*/ `
+          <section id="header">
+            <div id="selected" tabindex="0">最新消息</div>
+            <div id="options">
+              <button id="latestNews" type="button">最新消息</button>
+              <button id="settings" type="button">设置</button>
+            </div>
+          </section>
+          <section id="body"></section>
+          <section id="display"></section>
+          <style>
+            :host {
+              width: 100%;
+              height: 100%;
+              display: grid;
+              grid-template-columns: 100%;
+              grid-template-rows: 25% 75%;
+            }
+            #header {
+              grid-area: 1 / 1 / 2 / 2;
+              width: 100%;
+              height: 100%;
+              box-sizing: border-box;
+              display: grid;
+              grid-template-columns: 100%;
+              grid-template-rows: 100%;
+              place-items: center;
+              transition: all 0.3s ease-in-out;
+            }
+            #selected {
+              grid-area: 1 / 1 / 2 / 2;
+              width: 100%;
+              height: 100%;
+              box-sizing: border-box;
+              padding: 1rem;
+              background-color: var(--light);
+              display: grid;
+              align-items: end;
+              font-size: 3rem;
+              font-weight: bolder;
+              z-index: 1;
+            }
+            #options {
+              width: 100%;
+              position: relative;
+              display: grid;
+              grid-template-columns: 100%;
+              grid-auto-rows: 100%;
+              transform: translateY(-200%);
+              z-index: 0;
+              transition: all 0.3s ease-in-out;
+            }
+            #options button {
+              width: 100%;
+              height: 100%;
+              font-size: 2rem;
+              font-weight: bold;
+              background-color: lightgray;
+              border: none;
+              outline: none;
+            }
+            #selected:focus + #options {
+              transform: translateY(0);
+            }
+            #body {
+              grid-area: 2 / 1 / 3 / 2;
+              width: 100%;
+              height: 100%;
+              background-color: lightblue;
+            }
+            #display {
+              grid-area: 1 / 1 / 3 / 2;
+              width: 100%;
+              height: 100%;
+              transform: scale(0);
+              z-index: 2;
+              transition: all 0.3s ease-in-out;
+              background-color: lightgreen;
+            }
+            @media (prefers-color-scheme: dark) {
+              #selected {
+                background-color: var(--dark);
+              }
+            }
+          </style>`;
+      }
+      async connectedCallback() {
         // setTimeout(() => {
         //   this.dispatchEvent(new CustomEvent("reset", { detail: { layout: "25 50 25 50" }, bubbles: true, composed: true }));
         // }, 1000);
-        $WebBase.zone.bus.postMessage({ to: "Casual", from: "", content: "Hello, I am ArticleList" });
+
+        // 设置一个点击监听器在元素options上
+        const tag_body = this.root.querySelector("#body");
+        const tag_options = this.root.querySelector("#options");
+        const tag_selected = this.root.querySelector("#selected");
+        tag_options.addEventListener("click", async (event) => {
+          const { target } = event;
+          if (target.tagName === "BUTTON") {
+            tag_selected.textContent = target.textContent;
+            switch (target.id) {
+              case "latestNews": {
+                tag_body.innerHTML = "";
+                if (!$WebBase.isServerNode) {
+                  $WebBase.zone.bus.postMessage({ to: "ProxyServer", from: "MainAvenue", type: "requestLatestNews" });
+                }
+                break;
+              }
+              case "settings": {
+                // 清空body中的所有子元素
+                tag_body.innerHTML = "";
+                tag_body.appendChild(await $SettingsPage.$new());
+                break;
+              }
+            }
+          }
+        });
+
+        $WebBase.on("requestLatestNews", (event) => {
+          const news = event.detail;
+          // 判断news是否是一个空对象
+          if (Object.keys(news).length === 0) {
+            tag_body.innerHTML = "<h1>暂无最新消息</h1>";
+          } else {
+            tag_body.innerHTML = "";
+            for (const key in news) {
+              const newsItem = document.createElement("div");
+              newsItem.textContent = news[key];
+              tag_body.appendChild(newsItem);
+            }
+          }
+        });
+
+        await $WebBase.zone.casualWorkersDone;
+        // 找出$WebBase.zone.casualWorkersMap中第一个空闲的临时工人 获取他在casualWorkersMap中的Key
+        const casualWorker = Array.from($WebBase.zone.casualWorkersMap).find(([_, value]) => value.status === "Activated");
+        $WebBase.zone.bus.postMessage({ to: casualWorker[0], from: "MainAvenue", type: "getConfig" });
       }
-    }
-    codeMap.set("$ArticleList", $ArticleList);
-    function $capitalize(str) {
-      return str.charAt(0) === "$" ? str.charAt(0) + str.charAt(1).toUpperCase() + str.slice(2) : str.charAt(0).toUpperCase() + str.slice(1);
-    };
-    codeMap.set("$capitalize", $capitalize);
+    } codeMap.set("$ControlPanel", $ControlPanel);
+
+
     function $coverCSS() {
       const userAgent = navigator.userAgent;
       switch (true) {
@@ -566,11 +812,12 @@ new (class _ {
           break;
         }
       }
-    };
-    codeMap.set("$coverCSS", $coverCSS);
+    }; codeMap.set("$coverCSS", $coverCSS);
+
+
     class $DataEngine {
       constructor() {
-        this.env = self.RECO_ZONE ? self.RECO_ZONE : "Main";
+        this.env = self.RECO_ZONE ? self.RECO_ZONE : "MainAvenue";
       }
       static async new() {
         const dataEngine = new $DataEngine();
@@ -632,8 +879,9 @@ new (class _ {
       async set() { }
       async det() { }
       async get() { }
-    };
-    codeMap.set("$DataEngine", $DataEngine);
+    }; codeMap.set("$DataEngine", $DataEngine);
+
+
     /**
      * @param {Blob | Uint8Array} data - 一个Blob或Uint8Array 
      * @returns 
@@ -727,8 +975,9 @@ new (class _ {
       } catch (error) {
         console.error(error);
       }
-    };
-    codeMap.set("$deliver", $deliver);
+    }; codeMap.set("$deliver", $deliver);
+
+
     /**
      * @param {Object} data - 一个对象 包含type属性和其他属性
      * @returns - 返回一个Blob对象
@@ -739,7 +988,7 @@ new (class _ {
         const promises = [];
         for (const key in data) {
           if (Object.prototype.hasOwnProperty.call(data, key)) {
-            const dataType = this.$obType(data[key]);
+            const dataType = $obType(data[key]);
             switch (dataType) {
               case "Null":
               case "String":
@@ -795,12 +1044,12 @@ new (class _ {
                 for (const [mapKey, mapValue] of data[key]) {
                   map[mapKey] = mapValue;
                 }
-                output[`${dataType}[${key}]`] = await this.$encoder(map, true);
+                output[`${dataType}[${key}]`] = await $encoder(map, true);
                 break;
               }
               case "Set": {
                 const set = Array.from(data[key]);
-                output[`${dataType}[${key}]`] = await this.$encoder(set, true);
+                output[`${dataType}[${key}]`] = await $encoder(set, true);
                 break;
               }
               case "Array": {
@@ -809,12 +1058,11 @@ new (class _ {
                 for (let i = 0; i < data[key].length; i++) {
                   array[i] = data[key][i];
                 }
-                output[`${dataType}[${key}]`] = await this.$encoder(array, true);
-                // output[`${dataType}[${key}]`] = data[key];
+                output[`${dataType}[${key}]`] = await $encoder(array, true);
                 break;
               }
               case "Object": {
-                output[`${dataType}[${key}]`] = await this.$encoder(data[key], true);
+                output[`${dataType}[${key}]`] = await $encoder(data[key], true);
                 break;
               }
               default: {
@@ -828,8 +1076,9 @@ new (class _ {
       } catch (error) {
         console.error(error);
       }
-    };
-    codeMap.set("$encoder", $encoder);
+    }; codeMap.set("$encoder", $encoder);
+
+
     /** 生成随机汉字
      * @returns 返回一个随机的汉字
      */
@@ -838,15 +1087,17 @@ new (class _ {
       const maxCharCode = 0x9FFF;
       const randomCharCode = Math.floor(Math.random() * (maxCharCode - minCharCode + 1)) + minCharCode;
       return String.fromCodePoint(randomCharCode);
-    };
-    codeMap.set("$generateRandomChineseCharacter", $generateRandomChineseCharacter);
+    }; codeMap.set("$generateRandomChineseCharacter", $generateRandomChineseCharacter);
+
+
     /** 生成随机颜色
      * @returns 返回一个随机的颜色
      */
     function $generateRandomColor() {
       return `#${Math.floor(Math.random() * 0xFFFFFF).toString(16).padStart(6, "0")}`;
-    };
-    codeMap.set("$generateRandomColor", $generateRandomColor);
+    }; codeMap.set("$generateRandomColor", $generateRandomColor);
+
+
     /**
      * @param {any} arg - 任意值
      * @returns {Promise<string>} - 哈希值
@@ -888,8 +1139,9 @@ new (class _ {
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       const hashHex = hashArray.map(byte => byte.toString(16).padStart(2, "0")).join("");
       return hashHex;
-    };
-    codeMap.set("$hash", $hash);
+    }; codeMap.set("$hash", $hash);
+
+
     /** 判断传入参数的类型
      * @param {any} arg - 任意值
      * @returns - 返回一个字符串
@@ -902,8 +1154,40 @@ new (class _ {
       } else {
         return arg.constructor ? arg.constructor.name : "Object";
       }
-    };
-    codeMap.set("$obType", $obType);
+    }; codeMap.set("$obType", $obType);
+
+    class $SettingsPage extends $WebBase {
+      constructor() {
+        super();
+        this.rare = "settings-page";
+        this.template.innerHTML = /*html*/ `
+          <label for="serverNode">设置为资源服务器节点</label>
+          <input type="text" id="serverNode" placeholder="请输入密钥">
+          <button id="confirm" type="button">确认</button>
+          <style>
+            :host {
+              display: grid;
+              width: 100%;
+              height: 100%;
+              box-sizing: border-box;
+              padding: 1rem;
+              background-color: #f0f0f0;
+            }
+            @media (prefers-color-scheme: dark) {
+            }
+            @media screen and (orientation: landscape) {
+            }
+          </style>`;
+      }
+      connectedCallback() {
+        const tag_serverNode = this.root.querySelector("#serverNode");
+        const tag_confirm = this.root.querySelector("#confirm");
+        tag_confirm.addEventListener("click", () => {
+          $WebBase.zone.bus.postMessage({ to: "ProxyServer", from: "MainAvenue", type: "applyStatus", content: tag_serverNode.value });
+        });
+      };
+    }; codeMap.set("$SettingsPage", $SettingsPage);
+
     class $StorePage extends $WebBase {
       constructor() {
         super();
@@ -924,8 +1208,9 @@ new (class _ {
       connectedCallback() {
         console.log("connectedCallback");
       };
-    };
-    codeMap.set("$StorePage", $StorePage);
+    }; codeMap.set("$StorePage", $StorePage);
+
+
     class $SudokuGrid extends $WebBase {
       static get observedAttributes() { return ["data-r1", "data-r2", "data-c1", "data-c2"]; }
       constructor(component) {
@@ -986,16 +1271,30 @@ new (class _ {
           }
         }
       }
-    };
-    codeMap.set("$SudokuGrid", $SudokuGrid);
+    }; codeMap.set("$SudokuGrid", $SudokuGrid);
+
+
     class $TransEngine {
+      static fire(type, detail) {
+        globalThis.dispatchEvent(new CustomEvent(type, { detail: detail }));
+      }
+      static on(type, callback) {
+        return globalThis.addEventListener(type, callback, false);
+      }
       constructor() {
         this.socket = this.createSocket();
         this.socketDone = new Promise((resolve) => { this.socketSolver = resolve; });
         this.transQueue = [];
         this.transSolver = new Map();
       }
-      createSocket({ openHandler, messageHandler, closeHandler, errorHandler } = {}) {
+      #reconnectPulse = undefined;
+      #isConnected() {
+        return this.socket && this.socket.readyState === this.socket.OPEN;
+      }
+      #isConnecting() {
+        return this.socket && this.socket.readyState === this.socket.CONNECTING;
+      }
+      createSocket() {
         switch (WebSocket) {
           case undefined: {
             document.body.innerHTML = "当前浏览器不支持WebSocket<br>请使用最新版Chrome浏览器";
@@ -1003,20 +1302,50 @@ new (class _ {
           }
           default: {
             try {
+              clearInterval(this.#reconnectPulse);
+              if (this.#isConnected() || this.#isConnecting()) return;
               const isSecure = location.protocol === "https:";
               const protocol = isSecure ? "wss" : "ws";
               const socket = new WebSocket(`${protocol}://${location.host}/web.socket`);
-              const defaultOpenHandler = () => {
-                this.socketSolver();
-                console.log("WebSocket连接成功");
+              socket.onopen = () => {
+                try {
+                  this.socketSolver();
+                  socket.heartbeat = setInterval(() => {
+                    const message = { type: "heartbeat" };
+                    this.transmit(message);
+                  }, 60 * 1000);
+                  const message = { type: "online" };
+                  this.transmit(message);
+                } catch (error) {
+                  console.error(error);
+                }
               };
-              const defaultMessageHandler = async (event) => {
+              socket.onmessage = async (event) => {
                 try {
                   const output = await $deliver(event.data);
+                  this.transSolver.get(output.randomStamp)();
+                  this.transSolver.delete(output.randomStamp);
                   switch (output.type) {
+                    case "online": {
+                      socket.uuid = output.uuid;
+                      break;
+                    }
+                    case "heartbeat": {
+                      break;
+                    }
+                    case "applyStatus": {
+                      console.log(output.success);
+                      break;
+                    }
+                    case "requestLatestNews": {
+                      $TransEngine.fire("requestLatestNews", output.news);
+                      break;
+                    }
+                    case "error": {
+                      console.error(output.reason);
+                      break;
+                    }
                     default: {
-                      globalThis.seekPromiseResolve.get(output.randomStamp)();
-                      globalThis.seekPromiseResolve.delete(output.randomStamp);
                       break;
                     }
                   }
@@ -1027,15 +1356,32 @@ new (class _ {
                     type: "error",
                     reason: "客户端代码错误或服务端未传输正确的数据",
                   };
-                  this.seek(message);
+                  this.transmit(message);
                 }
               };
-              const defaultCloseHandler = () => { console.log("WebSocket连接关闭"); };
-              const defaultErrorHandler = (event) => { console.error(`WebSocket连接出错: ${event}`); };
-              socket.onopen = openHandler || defaultOpenHandler;
-              socket.onmessage = messageHandler || defaultMessageHandler;
-              socket.onclose = closeHandler || defaultCloseHandler;
-              socket.onerror = errorHandler || defaultErrorHandler;
+              socket.onclose = (event) => {
+                console.log(`WebSocket连接关闭 ${event.code}`);
+                clearInterval(socket.heartbeat);
+                if (event.code !== 1000 && event.code !== 1006 && event.code !== 4000) {
+                  // 1000 正常关闭
+                  // 1006 异常关闭
+                  // 4000 主动关闭
+                  clearInterval(this.#reconnectPulse);
+                  this.#reconnectPulse = setInterval(() => {
+                    console.log("尝试重新连接");
+                    this.socket = this.createSocket(); // 重新链接
+                  }, 5000);
+                }
+              };
+              socket.onerror = (event) => {
+                console.error(`WebSocket连接出错: ${event}`);
+                clearInterval(socket.heartbeat);
+                clearInterval(this.#reconnectPulse);
+                this.#reconnectPulse = setInterval(() => {
+                  console.log("尝试重新连接");
+                  this.socket = this.createSocket(); // 重新链接
+                }, 5000);
+              };
               return socket;
             } catch (error) {
               console.error(error);
@@ -1050,18 +1396,8 @@ new (class _ {
           if (!this.socket) return { type: "error", reason: "WebSocket连接未建立" };
           if (this.socket.readyState !== 1) return { type: "error", reason: "WebSocket连接未就绪" };
           const randomStamp = Math.random().toString(36).slice(2);
-          const obFrom = () => {
-            const parts = location.hostname.split(".").slice(0, -1);
-            if (parts[0] === "www") { parts.shift(); }
-            parts.forEach((part, index) => { parts[index] = part.charAt(0).toUpperCase() + part.slice(1); });
-            const from = parts.join("");
-            localStorage.setItem("from", from);
-            return from;
-          };
           this.transQueue.push(new Promise((resolve) => { this.transSolver.set(randomStamp, resolve); }));
           message.randomStamp = randomStamp;
-          message.stringWebToken = localStorage.getItem("stringWebToken") || "null";
-          message.from = localStorage.getItem("from") || obFrom();
           this.socket.send(await $encoder(message));
           while (this.transQueue.length > 0) { return await this.transQueue.shift(); }
         } catch (error) {
@@ -1069,10 +1405,12 @@ new (class _ {
           this.socket = this.createSocket();
         }
       }
-    };
-    codeMap.set("$TransEngine", $TransEngine);
-    class $TransHub { };
-    codeMap.set("$TransHub", $TransHub);
+    }; codeMap.set("$TransEngine", $TransEngine);
+
+
+    class $TransHub { }; codeMap.set("$TransHub", $TransHub);
+
+
     function initBreeze() {
       breeze.onmessageerror = (event) => console.error(event);
       breeze.onmessage = (event) => {
@@ -1091,295 +1429,6 @@ new (class _ {
                 const message = {
                   type: "link",
                   content: data,
-                };
-                targetSocket.send(JSON.stringify(message));
-              }
-            }
-            break;
-          }
-          case "link": {
-            const {
-              linkType,
-              linkStep,
-              linkMode = "pair",
-              activeID = null,
-              passiveID = null,
-              offerSDP = null,
-              answerSDP = null,
-              candidate = null,
-            } = content;
-            switch (linkType) {
-              case "RtcPair": {
-                switch (linkStep) {
-                  case "1": {
-                    let isHit = false;
-                    for (const alive of alives) {
-                      if (alive.id === passiveID) {
-                        const targetSocket = alive;
-                        console.log("RtcPair 1", targetSocket.id);
-                        const data = {
-                          linkType: "RtcPair",
-                          linkStep: "2",
-                          linkMode: linkMode,
-                          activeID: activeID,
-                          passiveID: passiveID,
-                          offerSDP: offerSDP,
-                        };
-                        const message = {
-                          type: "link",
-                          content: data,
-                        };
-                        targetSocket.send(JSON.stringify(message));
-                        isHit = true;
-                      }
-                    }
-                    if (isHit === false) {
-                      const transmit = {
-                        instruction: "failToActiveID",
-                        content: {
-                          activeID: activeID,
-                          errorMessage:
-                            `没有找到${passiveID} ${Date.now()} RtcPair 1 Fail`,
-                        },
-                      };
-                      breeze.postMessage(transmit);
-                    }
-                    break;
-                  }
-                  case "3": {
-                    let isHit = false;
-                    for (const alive of alives) {
-                      if (alive.id === activeID) {
-                        const targetSocket = alive;
-                        console.log("RtcPair 3", targetSocket.id);
-                        const data = {
-                          linkType: "RtcPair",
-                          linkStep: "4",
-                          linkMode: linkMode,
-                          activeID: activeID,
-                          passiveID: passiveID,
-                          answerSDP: answerSDP,
-                        };
-                        const message = {
-                          type: "link",
-                          content: data,
-                        };
-                        targetSocket.send(JSON.stringify(message));
-                        isHit = true;
-                      }
-                    }
-                    if (isHit === false) {
-                      const transmit = {
-                        instruction: "failToPassiveID",
-                        content: {
-                          passiveID: passiveID,
-                          errorMessage:
-                            `没有找到${activeID} ${Date.now()} RtcPair 3 Fail`,
-                        },
-                      };
-                      breeze.postMessage(transmit);
-                    }
-                    break;
-                  }
-                  case "5": {
-                    let isHit = false;
-                    for (const alive of alives) {
-                      if (alive.id === passiveID) {
-                        const targetSocket = alive;
-                        console.log("RtcPair 5", targetSocket.id);
-                        const data = {
-                          linkType: "RtcPair",
-                          linkStep: "6",
-                          linkMode: linkMode,
-                          activeID: activeID,
-                          passiveID: passiveID,
-                          candidate: candidate,
-                        };
-                        const message = {
-                          type: "link",
-                          content: data,
-                        };
-                        targetSocket.send(JSON.stringify(message));
-                        isHit = true;
-                      }
-                    }
-                    if (isHit === false) {
-                      const transmit = {
-                        instruction: "failToActiveID",
-                        content: {
-                          activeID: activeID,
-                          errorMessage:
-                            `没有找到${passiveID} ${Date.now()} RtcPair 5 Fail`,
-                        },
-                      };
-                      breeze.postMessage(transmit);
-                    }
-                    break;
-                  }
-                  case "7": {
-                    let isHit = false;
-                    for (const alive of alives) {
-                      if (alive.id === activeID) {
-                        const targetSocket = alive;
-                        console.log("RtcPair 7", targetSocket.id);
-                        const data = {
-                          linkType: "RtcPair",
-                          linkStep: "8",
-                          linkMode: linkMode,
-                          passiveID: passiveID,
-                          candidate: candidate,
-                        };
-                        const message = {
-                          type: "link",
-                          content: data,
-                        };
-                        targetSocket.send(JSON.stringify(message));
-                        isHit = true;
-                      }
-                    }
-                    if (isHit === false) {
-                      const transmit = {
-                        instruction: "failToPassiveID",
-                        content: {
-                          passiveID: passiveID,
-                          errorMessage:
-                            `没有找到${activeID} ${Date.now()} RtcPair 7 Fail`,
-                        },
-                      };
-                      breeze.postMessage(transmit);
-                    }
-                    break;
-                  }
-                }
-                break;
-              }
-              case "SocketPair": {
-                switch (linkStep) {
-                  case "1": {
-                    let isHit = false;
-                    for (const alive of alives) {
-                      if (alive.id === passiveID) {
-                        const targetSocket = alive;
-                        console.log("SocketPair 1", targetSocket.id);
-                        const data = {
-                          linkType: "SocketPair",
-                          linkStep: "2",
-                          activeID: activeID,
-                          passiveID: passiveID,
-                        };
-                        const message = {
-                          type: "link",
-                          content: data,
-                        };
-                        targetSocket.send(JSON.stringify(message));
-                        isHit = true;
-                      }
-                    }
-                    if (isHit === false) {
-                      const transmit = {
-                        instruction: "failToActiveID",
-                        content: {
-                          activeID: activeID,
-                          errorMessage:
-                            `没有找到${passiveID} ${Date.now()} SocketPair 1 Fail`,
-                        },
-                      };
-                      breeze.postMessage(transmit);
-                    }
-                    break;
-                  }
-                  case "3": {
-                    let isHit = false;
-                    for (const alive of alives) {
-                      if (alive.id === activeID) {
-                        const targetSocket = alive;
-                        console.log("SocketPair 3", targetSocket.id);
-                        const data = {
-                          linkType: "SocketPair",
-                          linkStep: "4",
-                          passiveID: passiveID,
-                        };
-                        const message = {
-                          type: "link",
-                          content: data,
-                        };
-                        targetSocket.send(JSON.stringify(message));
-                        isHit = true;
-                      }
-                    }
-                    if (isHit === false) {
-                      const transmit = {
-                        instruction: "failToPassiveID",
-                        content: {
-                          passiveID: passiveID,
-                          errorMessage:
-                            `没有找到${activeID} ${Date.now()} SocketPair 3 Fail`,
-                        },
-                      };
-                      breeze.postMessage(transmit);
-                    }
-                    break;
-                  }
-                }
-                break;
-              }
-            }
-            break;
-          }
-          case "chat": {
-            const { chatType, messageContent = null, windowID, activeID, passiveID } =
-              content;
-            let isHit = false;
-            for (const alive of alives) {
-              if (alive.id === passiveID) {
-                const targetSocket = alive;
-                const data = {
-                  chatType: chatType,
-                  messageContent: messageContent,
-                  windowID: windowID,
-                };
-                const message = {
-                  type: "chat",
-                  content: data,
-                };
-                targetSocket.send(JSON.stringify(message));
-                isHit = true;
-              }
-            }
-            if (isHit === false) {
-              const transmit = {
-                instruction: "failToActiveID",
-                content: {
-                  activeID: activeID,
-                  errorMessage: `没有找到${passiveID} ${Date.now()} chatFail`,
-                },
-              };
-              breeze.postMessage(transmit);
-            }
-            break;
-          }
-          case "failToActiveID": {
-            const { activeID, errorMessage } = content;
-            for (const alive of alives) {
-              if (alive.id === activeID) {
-                const targetSocket = alive;
-                const message = {
-                  type: "error",
-                  content: errorMessage,
-                };
-                targetSocket.send(JSON.stringify(message));
-              }
-            }
-            break;
-          }
-          case "failToPassiveID": {
-            const { passiveID, errorMessage } = content;
-            for (const alive of alives) {
-              if (alive.id === passiveID) {
-                const targetSocket = alive;
-                const message = {
-                  type: "error",
-                  content: errorMessage,
                 };
                 targetSocket.send(JSON.stringify(message));
               }
@@ -1537,7 +1586,7 @@ new (class _ {
       const { socket, response } = Deno.upgradeWebSocket(request);
       socket.reply = async (message) => {
         try {
-          if (socket.readyState !== 1) { throw new Error(`<-${socket.genecode}-> 链接已关闭`); }
+          if (socket.readyState !== 1) { throw new Error(`<-${socket.uuid}-> 链接已关闭`); }
           socket.send(await $encoder(message));
         } catch (error) {
           console.error(error);
@@ -1546,14 +1595,14 @@ new (class _ {
       socket.onopen = (event) => console.log(`Socket is ${event.type}`);
       socket.onerror = (event) => console.error("Socket errored:", event);
       socket.onclose = (event) => {
-        alives.delete(socket);
+        alives.delete(socket.uuid);
         switch (event.code) {
           case 4000: {
-            console.log(`多余的 <-${event.reason}-> 断开 | 本服务器当前在线节点共计 [-${alives.size}-] 个`)
+            console.log(`多余的 <-${event.reason}-> 断开`)
             break;
           }
           case 1001: {
-            console.log(`<-${socket.genecode}-> 下线 | 本服务器当前在线节点共计 [-${alives.size}-] 个`)
+            console.log(`<-${socket.uuid}-> 下线`)
             break;
           }
           default: {
@@ -1565,119 +1614,71 @@ new (class _ {
       socket.onmessage = async (event) => {
         try {
           const output = await $deliver(event.data);
-          switch (output.from) {
-            case "HlcUniverses": {
-              switch (output.type) {
-                case "online": {
-                  // DEV 使用set的has方法优化此处
-                  for (const alive of alives) {
-                    if (alive.genecode === output.genecode) {
-                      const message = {
-                        type: "disconnect",
-                        reason: "该节点已经在线",
-                        randomStamp: output.randomStamp,
-                      }
-                      socket.reply(message);
-                      return;
-                    }
-                  }
-                  socket.heartbeat = 0;
-                  socket.genecode = output.genecode;
-                  alives.add(socket);
-                  console.log(`<-HlcUniverses-> <-${socket.genecode}-> 上线 | 本服务器当前在线节点共计 [-${alives.size}-] 个`);
-                  if (output.stringWebToken === "null") {
-                    const dbc = await Deno.openKv();
-                    dbc.host = "HlcUniverses";
-                    dbc.power = "r0w0";
-                    dbc.timestamp = "0000000000000";
-                    dbc.pending = new Map();
-                    socket.dbc = dbc;
-                    const message = {
-                      type: "version",
-                      version: version,
-                      swt: await Account.genrateNormalStringWebToken(),
-                      randomStamp: output.randomStamp,
-                    }
-                    socket.reply(message);
-                  } else {
-                    const swtParseResult = await Account.parseStringWebToken(output.stringWebToken);
-                    if (swtParseResult.status !== "解析成功") {
-                      const dbc = await Deno.openKv();
-                      dbc.host = "HlcUniverses";
-                      dbc.power = "r0w0";
-                      dbc.timestamp = "0000000000000";
-                      dbc.pending = new Map();
-                      socket.dbc = dbc;
-                    } else {
-                      const dbc = await Deno.openKv();
-                      dbc.host = swtParseResult.value.host;
-                      dbc.power = swtParseResult.value.power;
-                      dbc.timestamp = swtParseResult.value.timestamp;
-                      socket.dbc = dbc;
-                    }
-                    const message = {
-                      type: "version",
-                      version: version,
-                      randomStamp: output.randomStamp,
-                    }
-                    socket.reply(message);
-                  }
-                  break;
-                }
-                case "heartbeat": {
-                  const message = {
-                    type: "heartbeat",
-                    randomStamp: output.randomStamp,
-                  }
-                  socket.reply(message);
-                  break;
-                }
-                case "atomic": {
-                  const transaction = {
-                    projectName: output.from,
-                    randomStamp: output.randomStamp,
-                  };
-                  if (output.transaction) {
-                    for (const key in output.transaction) {
-                      transaction[key] = output.transaction[key];
-                    }
-                  }
-                  DataBase.atomic({ socket: socket, transaction: transaction });
-                  break;
-                }
-                case "randomUUID": {
-                  const result = crypto.randomUUID().replace(/-/g, "");
-                  const message = {
-                    type: "randomUUIDResult",
-                    result: result,
-                    randomStamp: output.randomStamp,
-                  }
-                  socket.reply(message);
-                  break;
-                }
-                case "error": {
-                  console.error(output.reason);
-                  const message = {
-                    type: "default",
-                    randomStamp: output.randomStamp,
-                  }
-                  socket.reply(message);
-                  break;
-                }
-                default: {
-                  console.log(output);
-                  const message = {
-                    type: "default",
-                    randomStamp: output.randomStamp,
-                  }
-                  socket.reply(message);
-                  break;
-                }
+          switch (output.type) {
+            case "online": {
+              const uuid = crypto.randomUUID();
+              socket.uuid = uuid;
+              alives.set(uuid, socket);
+              console.log(`<-${uuid}-> 上线`);
+              const message = {
+                type: "online",
+                uuid: uuid,
+                randomStamp: output.randomStamp,
               }
+              socket.reply(message);
+              break;
+            }
+            case "heartbeat": {
+              const message = {
+                type: "heartbeat",
+                randomStamp: output.randomStamp,
+              }
+              socket.reply(message);
+              break;
+            }
+            case "applyStatus": {
+              let message;
+              if (output.key === ADMIN_KEY) {
+                message = {
+                  type: "applyStatus",
+                  success: true,
+                  randomStamp: output.randomStamp,
+                };
+              } else {
+                message = {
+                  type: "applyStatus",
+                  success: false,
+                  randomStamp: output.randomStamp,
+                };
+              }
+              socket.reply(message);
+              break;
+            }
+            case "requestLatestNews": {
+              const message = {
+                type: "requestLatestNews",
+                news: {},
+                randomStamp: output.randomStamp,
+              };
+              socket.reply(message);
+              break;
+            }
+            case "error": {
+              console.error(output.reason);
+              const message = {
+                type: "default",
+                randomStamp: output.randomStamp,
+              }
+              socket.reply(message);
               break;
             }
             default: {
               console.log(output);
+              const message = {
+                type: "default",
+                randomStamp: output.randomStamp,
+              }
+              socket.reply(message);
               break;
             }
           }
@@ -1711,7 +1712,7 @@ new (class _ {
             const headers = new Headers({ "Content-Type": "text/html;charset=UTF-8" });
             // if (requestName === "Redirect") requestHost = "Public";
             const body = HTMLElement.html(requestOrigin);
-            return new Response(body, { status: 210, headers });
+            return new Response(body, { status: 200, headers });
           }
           case "Webmanifest": {
             const headers = new Headers({ "Content-Type": "application/manifest+json;charset=UTF-8" });
@@ -1721,13 +1722,13 @@ new (class _ {
           case "Svg": {
             const headers = new Headers({ "Content-Type": "image/svg+xml;charset=UTF-8" });
             const body = HTMLElement.svg();
-            return new Response(body, { status: 210, headers });
+            return new Response(body, { status: 200, headers });
           }
           case "Png": {
             const headers = new Headers({ "Content-Type": "image/png;charset=UTF-8" });
             const iconSource = HTMLElement.svg();
             const body = await HTMLElement.icon(iconSource, "png");
-            return new Response(body, { status: 210, headers });
+            return new Response(body, { status: 200, headers });
           }
           case "Ico": {
             const headers = new Headers({ "Content-Type": "image/x-icon;charset=UTF-8" });
@@ -1821,7 +1822,7 @@ new (class _ {
       }
     }
     function httpServer() {
-      Deno.serve({ port: 5152, onListen(localAddr) { console.log(`%cServer started at http://${localAddr.hostname}:${localAddr.port} in ${localAddr.transport}`, 'background-color:blue;font-weight:bold;') } }, async (request, info) => {
+      Deno.serve({ onListen(localAddr) { console.log(`%cServer started at http://${localAddr.hostname}:${localAddr.port} in ${localAddr.transport}`, 'background-color:blue;font-weight:bold;') } }, async (request, info) => {
         try {
           return request.headers.get("upgrade") === "websocket" ? socketServer(request, info) : await sourceServer(request, info);
         } catch (error) {
@@ -2014,8 +2015,9 @@ new (class _ {
           }
         }
       }
-    }
-    codeMap.set("$NotFound", $NotFound);
+    } codeMap.set("$NotFound", $NotFound);
+
+
     class $CubeInterlude extends $WebBase {
       constructor() {
         super();
@@ -2093,8 +2095,9 @@ new (class _ {
       }
       connectedCallback() { }
       disconnectedCallback() { }
-    }
-    codeMap.set("$CubeInterlude", $CubeInterlude);
+    } codeMap.set("$CubeInterlude", $CubeInterlude);
+
+
     class $ProgressBar extends $WebBase {
       constructor() {
         super();
@@ -2178,7 +2181,7 @@ new (class _ {
           }
         }
       }
-    }
+    } codeMap.set("$ProgressBar", $ProgressBar);
     class $HollowBox extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2204,7 +2207,7 @@ new (class _ {
         }
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$HollowBox", $HollowBox);
     class $MessIcon extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2229,7 +2232,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$MessIcon", $MessIcon);
     class $LovescriptIcon extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2253,7 +2256,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$LovescriptIcon", $LovescriptIcon);
     class $SharpscriptIcon extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2295,7 +2298,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$SharpscriptIcon", $SharpscriptIcon);
     class $RadarIcon extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2318,7 +2321,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$RadarIcon", $RadarIcon);
     class $QrcodeIcon extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2349,7 +2352,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$QrcodeIcon", $QrcodeIcon);
     class $FingerprintIcon extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2377,7 +2380,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$FingerprintIcon", $FingerprintIcon);
     class $PiechartIcon extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2397,7 +2400,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$PiechartIcon", $PiechartIcon);
     class $LiveIcon extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2427,7 +2430,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$LiveIcon", $LiveIcon);
     class $CameraIcon extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2448,7 +2451,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$CameraIcon", $CameraIcon);
     class $GreetIcon extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2468,7 +2471,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$GreetIcon", $GreetIcon);
     class $PointtoIcon extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2488,7 +2491,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$PointtoIcon", $PointtoIcon);
     class $ElatedIcon extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2508,7 +2511,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$ElatedIcon", $ElatedIcon);
     class $BackButton extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2533,7 +2536,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$BackButton", $BackButton);
     class $MoreButton extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -2555,7 +2558,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$MoreButton", $MoreButton);
     class $BinButton extends $WebBase {
       constructor(data) {
         super();
@@ -2744,7 +2747,7 @@ new (class _ {
           }
         }
       }
-    }
+    } codeMap.set("$BinButton", $BinButton);
     class $EditButton extends $WebBase {
       constructor() {
         super();
@@ -2829,7 +2832,7 @@ new (class _ {
       }
       connectedCallback() { }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$EditButton", $EditButton);
     class $AddButton extends $WebBase {
       constructor() {
         super();
@@ -2888,7 +2891,7 @@ new (class _ {
       }
       connectedCallback() { }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$AddButton", $AddButton);
     class $LineCheckbox extends $WebBase {
       constructor() {
         super();
@@ -2933,7 +2936,7 @@ new (class _ {
       }
       connectedCallback() { }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$LineCheckbox", $LineCheckbox);
     class $FullscreenCheckbox extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -3000,7 +3003,7 @@ new (class _ {
           </style>`;
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$FullscreenCheckbox", $FullscreenCheckbox);
     class $RawCard extends $WebBase {
       constructor() { super() }
       connectedCallback() {
@@ -3192,7 +3195,7 @@ new (class _ {
         }
       }
       disconnectedCallback() { }
-    }
+    } codeMap.set("$RawCard", $RawCard);
     /**
      * 提示引擎
      * @param {Object} params
@@ -3523,7 +3526,7 @@ new (class _ {
           }
         }
       }
-    }
+    } codeMap.set("$PromptEngine", $PromptEngine);
     /**
      * 弹窗引擎
      */
@@ -3643,222 +3646,8 @@ new (class _ {
           }
         }
       }
-    }
-
-    // #endregion Source
-
-    // #region Mess
-
+    } codeMap.set("$PopupEngine", $PopupEngine);
     class BootCore extends $WebBase {
-      constructor() { super() }
-      async randomUUID() {
-        return (typeof crypto.randomUUID === "function"
-          ? crypto.randomUUID().replace(/-/g, "")
-          : await this.seek({ type: "randomUUID" }));
-      }
-      async seek(messages) {
-        try {
-          if (!globalThis.socket) { this.#socket() }
-          if (globalThis.socket.readyState !== 1) { throw new Error("链接已关闭"); }
-          if (!globalThis.seekPromise) { globalThis.seekPromise = []; globalThis.seekPromiseResolve = new Map(); }
-          const randomStamp = Math.random().toString(36).slice(2);
-          globalThis.seekPromise.push(new Promise((resolve) => { globalThis.seekPromiseResolve.set(randomStamp, resolve); }));
-          messages.randomStamp = randomStamp;
-          messages.stringWebToken = localStorage.getItem("stringWebToken") || "null";
-          const obFrom = () => {
-            const parts = location.hostname.split(".").slice(0, -1);
-            if (parts[0] === "www") { parts.shift(); }
-            parts.forEach((part, index) => { parts[index] = part.charAt(0).toUpperCase() + part.slice(1); });
-            const from = parts.join("");
-            localStorage.setItem("from", from);
-            return from;
-          };
-          messages.from = localStorage.getItem("from") || obFrom();
-          globalThis.socket.send(await BootCore.$encoder(messages));
-          while (globalThis.seekPromise.length > 0) { return await globalThis.seekPromise.shift(); }
-        } catch (error) {
-          console.error(error);
-          this.#socket();
-        }
-      }
-      #socket() {
-        switch (WebSocket) {
-          case undefined: {
-            document.body.innerHTML = "当前浏览器不支持WebSocket<br>请使用最新版Chrome浏览器";
-            break;
-          }
-          default: {
-            try {
-              const isSecure = location.protocol === "https:";
-              const protocol = isSecure ? "wss" : "ws";
-              const socket = new WebSocket(`${protocol}://${location.host}/web.socket`);
-              globalThis.socket = socket;
-              socket.onopen = async () => {
-                try {
-                  socket.heartbeat = setInterval(() => {
-                    const message = { type: "heartbeat" };
-                    this.seek(message);
-                  }, 60 * 1000);
-                  let genecode;
-                  if (localStorage.getItem("genecode")) {
-                    genecode = localStorage.getItem("genecode");
-                  } else {
-                    genecode = await this.randomUUID();
-                    localStorage.setItem("genecode", genecode);
-                  }
-                  const message = {
-                    type: "online",
-                    genecode: genecode,
-                  };
-                  this.seek(message);
-                } catch (error) {
-                  console.error(error);
-                }
-              };
-              socket.onmessage = async (event) => {
-                try {
-                  const output = await $deliver(event.data);
-                  switch (output.type) {
-                    case "heartbeat": {
-                      globalThis.seekPromiseResolve.get(output.randomStamp)();
-                      globalThis.seekPromiseResolve.delete(output.randomStamp);
-                      console.log("socket heartbeat");
-                      break;
-                    }
-                    case "version": {
-                      globalThis.seekPromiseResolve.get(output.randomStamp)();
-                      globalThis.seekPromiseResolve.delete(output.randomStamp);
-                      const appVersion = localStorage.getItem("appVersion");
-                      if (appVersion !== output.version) {
-                        localStorage.setItem("appVersion", output.version);
-                      }
-                      if (output.swt) {
-                        localStorage.setItem("stringWebToken", output.swt);
-                      }
-                      globalThis.socketOpenPromiseResolve("success");
-                      break;
-                    }
-                    case "atomic": {
-                      if (output.status === "pending") {
-                        if (!globalThis[`${output.randomStamp}AsyncGenerator`]) {
-                          const counter = new Proxy({
-                            count: 0,
-                            fulfilled: null,
-                            done: false,
-                          }, {
-                            set: (target, key, value) => {
-                              if (key === "count") {
-                                target.count = value;
-                                if (target.fulfilled && target.count === target.fulfilled) {
-                                  target.done = true;
-                                }
-                              } else {
-                                target.fulfilled = value + 1;
-                              }
-                              return true;
-                            }
-                          });
-                          const queue = [];
-                          const resolveArray = [];
-                          document.addEventListener(output.randomStamp, (event) => {
-                            queue.push(event.detail);
-                            if (resolveArray.length > 0) {
-                              resolveArray.shift()(queue.shift());
-                            }
-                            if (event.detail.fulfilled) {
-                              counter.fulfilled = event.detail.fulfilled;
-                            }
-                            counter.count++;
-                          });
-                          globalThis[`${output.randomStamp}AsyncGenerator`] = (async function* () {
-                            while (!counter.done || queue.length > 0) {
-                              if (queue.length > 0) {
-                                yield queue.shift();
-                              } else {
-                                yield new Promise((resolve) => { resolveArray.push(resolve); });
-                              }
-                            }
-                          })();
-                          globalThis.seekPromiseResolve.get(output.randomStamp)(globalThis[`${output.randomStamp}AsyncGenerator`]);
-                        }
-                        document.dispatchEvent(new CustomEvent(output.randomStamp, { detail: output.content }));
-                      } else {
-                        globalThis.seekPromiseResolve.get(output.randomStamp)(output.content);
-                        globalThis.seekPromiseResolve.delete(output.randomStamp);
-                      }
-                      break;
-                    }
-                    case "disconnect": {
-                      globalThis.seekPromiseResolve.get(output.randomStamp)();
-                      globalThis.seekPromiseResolve.delete(output.randomStamp);
-                      const bodyObserver = new MutationObserver(() => {
-                        while (document.body.firstChild !== document.body.lastChild || document.body.firstChild.nodeType !== 3) {
-                          document.body.innerHTML = output.reason;
-                        }
-                      });
-                      bodyObserver.observe(document.body, { childList: true });
-                      document.body.innerHTML = output.reason; // 触发bodyObserver
-                      socket.close(4000, bootCore.genecode); // 主动关闭 发送包含4000状态码和基因码的关闭帧
-                      navigator.serviceWorker.onmessage = null; // 清除SW的onmessage事件
-                      break;
-                    }
-                    case "randomUUIDResult": {
-                      globalThis.seekPromiseResolve.get(output.randomStamp)(output.result);
-                      globalThis.seekPromiseResolve.delete(output.randomStamp);
-                      break;
-                    }
-                    case "error": {
-                      globalThis.seekPromiseResolve.get(output.randomStamp)();
-                      globalThis.seekPromiseResolve.delete(output.randomStamp);
-                      console.error(output.reason);
-                      break;
-                    }
-                    case "kernel": {
-                      globalThis.seekPromiseResolve.get(output.randomStamp)();
-                      globalThis.seekPromiseResolve.delete(output.randomStamp);
-                      const appKernel = localStorage.getItem("appKernel");
-                      if (appKernel !== output.kernel) {
-                        localStorage.setItem("appKernel", output.kernel);
-                      }
-                      break;
-                    }
-                    default: {
-                      globalThis.seekPromiseResolve.get(output.randomStamp)();
-                      globalThis.seekPromiseResolve.delete(output.randomStamp);
-                      break;
-                    }
-                  }
-                } catch (error) {
-                  const output = await $deliver(event.data);
-                  console.error({ error: error, message: output });
-                  const message = {
-                    type: "error",
-                    reason: "客户端代码错误或服务端未传输正确的数据",
-                  };
-                  this.seek(message);
-                }
-              };
-              socket.onclose = (event) => {
-                clearInterval(socket.heartbeat);
-                if (event.code !== 1000 && event.code !== 1006 && event.code !== 4000) {
-                  // 1000 正常关闭
-                  // 1006 异常关闭
-                  // 4000 主动关闭
-                  this.#socket(); // 重新链接
-                }
-              };
-              socket.onerror = (event) => {
-                console.error(event);
-                clearInterval(socket.heartbeat);
-                this.#socket();
-              };
-            } catch (error) {
-              console.error(error);
-            }
-            break;
-          }
-        }
-      }
       async createKV(raw) {
         // 检查raw对象里是否有dataName,dataType,dataFormat,dataValue
         if (!raw.dataName || !raw.dataType || !raw.dataFormat || !raw.dataValue) {
@@ -4032,430 +3821,6 @@ new (class _ {
               yield res;
             }
           })();
-        }
-      }
-      async boot() {
-        switch (this.constructor === BootCore) {
-          case true: {
-            globalThis.bootCore = this;
-            globalThis.socketOpenPromise = new Promise((resolve) => { globalThis.socketOpenPromiseResolve = resolve });
-            this.#socket();
-            document.body.appendChild(await this.$start("PrimaryWindow"));
-            this.$banZoom();
-            this.$coverCSS();
-            this.$windUp(false);
-            break;
-          }
-          case false: {
-            throw new Error("非法调用BootCore的私有方法");
-          }
-        }
-      }
-    }
-    class ArticleDisplay extends $WebBase {
-      constructor(data) {
-        super();
-        this.imgs = [];
-        this.data = data;
-        const template = document.createElement("template");
-        this.attachShadow({ mode: "open" }).appendChild(template.content.cloneNode(true));
-        this.dataset.stage = "loading";
-      }
-      static get observedAttributes() { return ["data-stage"] }
-      connectedCallback() {
-        this.opClickEvents = (event) => {
-          switch (event.target.id) {
-            default: {
-              switch (event.target.className) {
-                case "articleTitle": {
-                  const textContent = event.target.nextElementSibling;
-                  const pictureContent = textContent.nextElementSibling;
-                  event.target.classList.toggle("hide");
-                  textContent.classList.toggle("hide");
-                  pictureContent.classList.toggle("blur");
-                  break;
-                }
-                case "textContent": {
-                  const articleTitle = event.target.previousElementSibling;
-                  const pictureContent = event.target.nextElementSibling;
-                  event.target.classList.toggle("hide");
-                  articleTitle.classList.toggle("hide");
-                  pictureContent.classList.toggle("blur");
-                  break;
-                }
-              }
-              break;
-            }
-          }
-        };
-        this.shadowRoot.addEventListener("click", this.opClickEvents);
-      }
-      async attributeChangedCallback(name, _oldValue, newValue) {
-        switch (name) {
-          case "data-stage": {
-            switch (newValue) {
-              case "loading": {
-                await this.$load("/cube.interlude");
-                this.shadowRoot.innerHTML = /*html*/ `
-                    <cube-interlude></cube-interlude>
-                    <style>
-                      :host {
-                        width: 100%;
-                        height: 100%;
-                        margin: 0;
-                        padding: 0;
-                        display: grid;
-                        grid-template-columns: 100%;
-                        grid-template-rows: 100%;
-                        place-items: center;
-                        overflow: hidden;
-                        transition: all 1s ease-in-out;
-                      }
-                      cube-interlude {
-                        grid-area: 1/1/2/2;
-                        z-index: 2;
-                      }
-                      .hide {
-                        opacity: 0;
-                        z-index: -1;
-                      }
-                      .blur {
-                        filter: blur(1rem);
-                      }
-                      @media (prefers-color-scheme: dark) {
-                      }
-                      @media screen and (orientation: landscape) {
-                      }
-                    </style>
-                  `;
-                const pictureArray = Array.from(Object.values(this.data.dataValue.pictureContent));
-                for (const picture of pictureArray) {
-                  const img = document.createElement("img");
-                  img.src = URL.createObjectURL(picture);
-                  this.imgs.push(img);
-                }
-                /**@type {CubeInterlude} */
-                const cubeInterlude = this.shadowRoot.querySelector("cube-interlude");
-                await cubeInterlude.selfDestruction();
-                this.dataset.stage = "loaded";
-                break;
-              }
-              case "loaded": {
-                const positons = ["start", "center", "end"];
-                this.shadowRoot.innerHTML = /*html*/ `
-                    <div class="articleTitle">${this.data.dataName}</div>
-                    <div class="textContent hide">${this.data.dataValue.textContent}</div>
-                    <div class="pictureContent"></div>
-                    <style>
-                      :host {
-                        width: 100%;
-                        height: 100%;
-                        margin: 0;
-                        padding: 0;
-                        display: grid;
-                        grid-template-columns: 100%;
-                        grid-template-rows: 100%;
-                        place-items: center;
-                        overflow: hidden;
-                        transition: all 1s ease-in-out;
-                      }
-                      .articleTitle {
-                        grid-area: 1/1/2/2;
-                        box-sizing: border-box;
-                        max-width: 100%;
-                        max-height: 50%;
-                        margin: 0;
-                        padding: 1rem;
-                        font-size: 3.5rem;
-                        justify-self: ${positons[Math.floor(Math.random() * positons.length)]};
-                        align-self: ${positons[Math.floor(Math.random() * positons.length)]};
-                        word-wrap: break-word;
-                        overflow-x: hidden;
-                        overflow-y: scroll;
-                        filter: drop-shadow(2px 4px 6px black);
-                        z-index: 1;
-                        transition: all 1s ease-in-out;
-                      }
-                      .articleTitle::-webkit-scrollbar {
-                        display: none;
-                      }
-                      .textContent {
-                        grid-area: 1/1/2/2;
-                        box-sizing: border-box;
-                        width: 100%;
-                        height: 100%;
-                        margin: 0;
-                        padding: 1rem;
-                        overflow: scroll;
-                        overflow-wrap: break-word;
-                        z-index: 1;
-                        transition: all 1s ease-in-out;
-                      }
-                      .textContent::-webkit-scrollbar {
-                        display: none;
-                      }
-                      .pictureContent {
-                        grid-area: 1/1/2/2;
-                        width: 100%;
-                        height: 100%;
-                        margin: 0;
-                        padding: 0;
-                        z-index: 0;
-                        transition: all 1s ease-in-out;
-                      }
-                      .pictureContent img {
-                        width: 100%;
-                        height: 100%;
-                        margin: 0;
-                        padding: 0;
-                        object-fit: cover;
-                        repeat: no-repeat;
-                      }
-                      .hide {
-                        opacity: 0;
-                        z-index: -1;
-                      }
-                      .blur {
-                        filter: blur(1rem);
-                      }
-                      @media (prefers-color-scheme: dark) {
-                      }
-                      @media screen and (orientation: landscape) {
-                      }
-                    </style>
-                  `;
-                const pictureContent = this.shadowRoot.querySelector(".pictureContent");
-                for (const img of this.imgs) {
-                  pictureContent.appendChild(img);
-                }
-                break;
-              }
-            }
-            break;
-          }
-        }
-      }
-    }
-    class PrimaryWindow extends $WebBase {
-      constructor() {
-        super();
-        this.previousPage = [];
-      }
-      static get observedAttributes() { return ["data-page"] }
-      async connectedCallback() {
-        globalThis.primaryWindow = this;
-        const template = document.createElement("template");
-        template.innerHTML = /*html*/ `
-            <div id="PageContainer"></div>
-            <span id="One"></span>
-            <style>
-              :host {
-                grid-area: body;
-                width: 80%;
-                height: 80%;
-                margin: 0;
-                padding: 0;
-                margin-left: 0;
-                border-radius: 20px;
-                background-color: transparent;
-                display: grid;
-                grid-template-columns: 100%;
-                grid-template-rows: 100%;
-                grid-template-areas: "primary";
-                align-self: center;
-                justify-self: center;
-                place-items: center;
-                filter: drop-shadow(2px 4px 6px black);
-                overflow: hidden;
-                z-index: 2;
-                transition: all 1s ease-in-out;
-              }
-              #PageContainer {
-                grid-area: primary;
-                width: 100%;
-                height: 100%;
-                margin: 0;
-                padding: 0;
-                background-color: transparent;
-                display: grid;
-                grid-template-columns: 100%;
-                grid-template-rows: 100%;
-                grid-template-areas: "page";
-                align-self: start;
-                justify-self: start;
-                place-items: center;
-                z-index: 0;
-                transition: all 1s ease-in-out;
-              }
-              #One {
-                grid-area: primary;
-                height: 100%;
-                width: 100%;
-                display: grid;
-                background-image:
-                    radial-gradient(closest-side, rgba(235, 105, 78, 0.3), rgba(235, 105, 78, 0)),
-                    radial-gradient(closest-side, rgba(77, 109, 203, 0.3), rgba(77, 109, 203, 0)),
-                    radial-gradient(closest-side, rgba(228, 0, 70, 0.2), rgba(228, 0, 70, 0)),
-                    radial-gradient(closest-side, rgba(170, 142, 245, 0.3), rgba(170, 142, 245, 0)),
-                    radial-gradient(closest-side, rgba(248, 192, 147, 0.3), rgba(248, 192, 147, 0));
-                background-size:
-                    130vmax 130vmax,
-                    130vmax 130vmax,
-                    90vmax 90vmax,
-                    160vmax 160vmax,
-                    90vmax 90vmax;
-                background-position:
-                    -80vmax -80vmax,
-                    60vmax -30vmax,
-                    10vmax 10vmax,
-                    -30vmax -10vmax,
-                    50vmax 50vmax;
-                background-repeat: no-repeat;
-                opacity: 1;
-                z-index: -1;
-                animation: 5s theone linear infinite;
-                transition: all 1s ease-in-out;
-              }
-              #One::after {
-                content: '';
-                display: block;
-                position: fixed;
-                width: 100%;
-                height: 100%;
-                top: 0;
-                left: 0;
-              }
-              @keyframes theone {
-                0%,
-                100% {
-                    background-size:
-                        130vmax 130vmax,
-                        80vmax 80vmax,
-                        90vmax 90vmax,
-                        110vmax 110vmax,
-                        90vmax 90vmax;
-                    background-position:
-                        -80vmax -80vmax,
-                        60vmax -30vmax,
-                        10vmax 10vmax,
-                        -30vmax -10vmax,
-                        50vmax 50vmax;
-                }
-                25% {
-                    background-size:
-                        100vmax 100vmax,
-                        90vmax 90vmax,
-                        100vmax 100vmax,
-                        90vmax 90vmax,
-                        60vmax 60vmax;
-                    background-position:
-                        -60vmax -90vmax,
-                        50vmax -40vmax,
-                        0vmax -20vmax,
-                        -40vmax -20vmax,
-                        40vmax 60vmax;
-                }
-                50% {
-                    background-size:
-                        80vmax 80vmax,
-                        110vmax 110vmax,
-                        80vmax 80vmax,
-                        60vmax 60vmax,
-                        80vmax 80vmax;
-                    background-position:
-                        -50vmax -70vmax,
-                        40vmax -30vmax,
-                        10vmax 0vmax,
-                        20vmax 10vmax,
-                        30vmax 70vmax;
-                }
-                75% {
-                    background-size:
-                        90vmax 90vmax,
-                        90vmax 90vmax,
-                        100vmax 100vmax,
-                        90vmax 90vmax,
-                        70vmax 70vmax;
-                    background-position:
-                        -50vmax -40vmax,
-                        50vmax -30vmax,
-                        20vmax 0vmax,
-                        -10vmax 10vmax,
-                        40vmax 60vmax;
-                }
-              }
-              @media (prefers-color-scheme: dark) {
-                #One {
-                  filter: hue-rotate(180deg);
-                }
-              }
-              @media screen and (orientation: landscape) {
-                :host {
-                width: 75%;
-                height: 90%;
-                margin-left: 10px;
-                justify-self: start;
-              }
-              }
-            </style>
-          `;
-        this.attachShadow({ mode: "open" }).appendChild(template.content.cloneNode(true));
-        this.PageContainer = this.shadowRoot.getElementById("PageContainer");
-        document.body.appendChild(await this.$start("CapsuleLogo"));
-        document.body.appendChild(await this.$start("SecondaryWindow"));
-        this.dataset.page = "TrendingPage";
-        this.$load("/communication.page");
-        this.$load("/organization.page");
-      }
-      async attributeChangedCallback(name, oldValue, newValue) {
-        switch (name) {
-          case "data-page": {
-            if (this.previousPage.length === 0 || newValue !== this.previousPage[this.previousPage.length - 1]) {
-              if (oldValue) {
-                this.previousPage.push(oldValue);
-              }
-            } else {
-              this.previousPage.pop();
-            }
-            while (this.PageContainer.firstChild) {
-              this.PageContainer.removeChild(this.PageContainer.firstChild);
-            }
-            switch (newValue) {
-              case "TrendingPage": {
-                this.PageContainer.appendChild(await this.$start("TrendingPage"));
-                break;
-              }
-              case "CommunicationPage": {
-                this.PageContainer.appendChild(await this.$start("CommunicationPage"));
-                break;
-              }
-              case "OrganizationPage": {
-                this.PageContainer.appendChild(await this.$start("OrganizationPage"));
-                break;
-              }
-              case "EditorPage": {
-                this.PageContainer.appendChild(await this.$start("EditorPage"));
-                break;
-              }
-              case "UserPage": {
-                this.PageContainer.appendChild(await this.$start("UserPage"));
-                break;
-              }
-              case "LoginPage": {
-                this.PageContainer.appendChild(await this.$start("LoginPage"));
-                break;
-              }
-              case "BoardPage": {
-                this.PageContainer.appendChild(await this.$start("BoardPage"));
-                break;
-              }
-              case "RawCard": {
-                this.PageContainer.appendChild(await this.$start("RawCard"));
-                break;
-              }
-            }
-            break;
-          }
         }
       }
     }
@@ -5089,850 +4454,81 @@ new (class _ {
         }
       }
     }
-    class CapsuleLogo extends $WebBase {
+    class $CapsuleLogo extends $WebBase {
       constructor() {
         super();
-        globalThis.capsuleLogo = this;
-        const template = document.createElement("template");
-        template.innerHTML = /*html*/ `
-            <button id="Logo" type="button">
-              <span>圣灯社区</span>
-            </button>
-            <style>
+        this.template.innerHTML = /*html*/ `
+          <button id="Logo" type="button">
+            <span>圣灯社区</span>
+          </button>
+          <style>
+            :host {
+              grid-area: body;
+              width: 50%;
+              height: 8%;
+              margin: 0;
+              padding: 0;
+              margin-top: 10px;
+              border-radius: 9999px;
+              color: white;
+              background-color: #015293;
+              align-self: start;
+              justify-self: center;
+              display: flex;
+              place-items: center;
+              scroll-snap-type: x mandatory;
+              overflow: scroll;
+              filter: drop-shadow(2px 4px 6px black);
+              z-index: 2;
+              transition: all 1s ease-in-out;
+            }
+            :host::-webkit-scrollbar {
+              display: none;
+            }
+            :host > * {
+              min-width: 100%;
+              min-height: 100%;
+            } 
+            button {
+              width: 100%;
+              height: 100%;
+              background-color: transparent;
+              border: none;
+              font-size: 2rem;
+              font-weight:bolder;
+              transition: all 1s ease-in-out;
+            }
+            span {
+              color: white;
+              filter: drop-shadow(2px 4px 6px black);
+              pointer-events: none;
+              transition: all 1s ease-in-out;
+            }
+            @media (prefers-color-scheme: dark) {
               :host {
-                grid-area: body;
-                width: 50%;
-                height: 8%;
-                margin: 0;
-                padding: 0;
-                margin-top: 10px;
-                border-radius: 9999px;
-                color: white;
-                background-color: #015293;
-                align-self: start;
-                justify-self: center;
-                display: flex;
-                place-items: center;
-                scroll-snap-type: x mandatory;
-                overflow: scroll;
-                filter: drop-shadow(2px 4px 6px black);
-                z-index: 2;
-                transition: all 1s ease-in-out;
-              }
-              :host::-webkit-scrollbar {
-                display: none;
-              }
-              :host > * {
-                min-width: 100%;
-                min-height: 100%;
-              } 
-              button {
-                width: 100%;
-                height: 100%;
-                background-color: transparent;
-                border: none;
-                font-size: 2rem;
-                font-weight:bolder;
-                transition: all 1s ease-in-out;
+                color: black;
+                background-color: #dc3a3a;
               }
               span {
-                color: white;
-                filter: drop-shadow(2px 4px 6px black);
-                pointer-events: none;
-                transition: all 1s ease-in-out;
-              }
-              @media (prefers-color-scheme: dark) {
-                :host {
-                  color: black;
-                  background-color: #dc3a3a;
-                }
-                span {
-                  color: black;
-                }
-              }
-              @media screen and (orientation: landscape) {
-                :host {
-                  width: 20%;
-                  height: 14%;
-                  margin-right: 10px;
-                  justify-self: end;
-                }
-              }
-            </style>
-          `;
-        this.attachShadow({ mode: "open" }).appendChild(template.content.cloneNode(true));
-        // 监视this.shadowRoot下的节点增加
-        const observer = new MutationObserver((_mutations) => {
-          // 获取this.shadowRoot下最后一个dom元素
-          const lastChild = this.shadowRoot.lastElementChild;
-          // 跳转到最后一个dom元素
-          lastChild.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-        });
-        observer.observe(this.shadowRoot, { childList: true });
-        this.shadowRoot.addEventListener("click", this.opClickEvents);
-      }
-      opClickEvents(event) {
-        switch (event.target.id) {
-          case "Logo": {
-            primaryWindow.dataset.page = "OrganizationPage";
-            break;
-          }
-        }
-      }
-    }
-    class TrendingPage extends $WebBase {
-      constructor() { super() }
-      async connectedCallback() {
-        secondaryWindow.dataset.live = "NavBar";
-        if (this.firstConnected === undefined) {
-          this.firstConnected = true;
-          globalThis.trendingPage = this;
-          const template = document.createElement("template");
-          template.innerHTML = /*html*/ `
-              <style>
-                :host {
-                  grid-area: page;
-                  width: 100%;
-                  height: 100%;
-                  margin: 0;
-                  padding: 0;
-                  display: flex;
-                  scroll-snap-type: x mandatory;
-                  place-items: center;
-                  overflow: scroll;
-                  transition: all 1s ease-in-out;
-                }
-                :host::-webkit-scrollbar {
-                  display: none;
-                }
-                .article {
-                  flex-shrink: 0;
-                  scroll-snap-align: center;
-                  width: 100%;
-                  height: 100%;
-                  font-size: 2rem;
-                  font-weight: bolder;
-                  color: black;
-                  background-color: white;
-                  transition: all 1s ease-in-out;
-                }
-                @media (prefers-color-scheme: dark) {
-                  .article {
-                    color: white;
-                    background-color: black;
-                  }
-                }
-                @media screen and (orientation: landscape) {
-                }
-              </style>
-            `;
-          this.attachShadow({ mode: "open" }).appendChild(template.content.cloneNode(true));
-          const carousel = (time) => {
-            const articles = Array.from(this.shadowRoot.querySelectorAll(".article"));
-            let direction = true;
-            let currentArticle = articles.reduce((maxArticle, article) => {
-              const rect = article.getBoundingClientRect();
-              const viewportWidth = globalThis.innerWidth;
-              const elementWidth = rect.right - rect.left;
-              const elementCoverage = elementWidth / viewportWidth;
-              if (!maxArticle) {
-                return article;
-              }
-              const maxRect = maxArticle.getBoundingClientRect();
-              const maxElementWidth = maxRect.right - maxRect.left;
-              const maxElementCoverage = maxElementWidth / viewportWidth;
-              return elementCoverage > maxElementCoverage ? article : maxArticle;
-            }, null);
-            setInterval(() => {
-              let nextArticle;
-              if (direction) {
-                nextArticle = currentArticle.nextElementSibling || currentArticle.previousElementSibling;
-                direction = !!currentArticle.nextElementSibling;
-              } else {
-                nextArticle = currentArticle.previousElementSibling || currentArticle.nextElementSibling;
-                direction = !currentArticle.previousElementSibling;
-              }
-              nextArticle.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-              currentArticle = nextArticle;
-            }, time);
-          };
-          // 创建一个观察者 观察this.shadowRoot里有多少个子元素
-          const observer = new MutationObserver((mutations) => {
-            if (mutations.length > 1) {
-              carousel(5000);
-            }
-          });
-          observer.observe(this.shadowRoot, { childList: true });
-          await globalThis.socketOpenPromise;
-          const response = await this.readKV({ index: ["dataType", "Document"], decode: true });
-          for await (const res of response) {
-            if (typeof res === "number") {
-              console.log("total: ", res);
-              if (res === 0) {
-                const noArticle = document.createElement("div");
-                noArticle.className = "article";
-                noArticle.textContent = "暂无文章";
-                noArticle.style.display = "grid";
-                noArticle.style.placeItems = "center";
-                this.shadowRoot.appendChild(noArticle);
-              }
-            } else {
-              const article = await this.$start("ArticleDisplay", res);
-              article.className = "article";
-              this.shadowRoot.appendChild(article);
-            }
-          }
-          // DEV 此后的代码不会被执行 即here不会被打印
-          // console.log("here");
-        }
-      }
-      disconnectedCallback() { }
-    }
-    class CommunicationPage extends $WebBase {
-      constructor() { super() }
-      connectedCallback() {
-        secondaryWindow.dataset.live = "CommunicationBar";
-        if (this.firstConnected === undefined) {
-          this.firstConnected = true;
-          globalThis.communicationPage = this;
-          const template = document.createElement("template");
-          template.innerHTML = /*html*/ `
-              <p>交流互动</p>
-              <style>
-                :host {
-                  grid-area: page;
-                  width: 100%;
-                  height: 100%;
-                  margin: 0;
-                  padding: 0;
-                  display: grid;
-                  place-items: center;
-                  transition: all 1s ease-in-out;
-                }
-                @media (prefers-color-scheme: dark) {
-                }
-                @media screen and (orientation: landscape) {
-                }
-              </style>
-            `;
-          this.attachShadow({ mode: "open" }).appendChild(template.content.cloneNode(true));
-        }
-      }
-      disconnectedCallback() { }
-    }
-    class OrganizationPage extends $WebBase {
-      constructor() { super() }
-      async connectedCallback() {
-        secondaryWindow.dataset.live = "OrganizationBar";
-        if (this.firstConnected === undefined) {
-          this.firstConnected = true;
-          globalThis.organizationPage = this;
-          const template = document.createElement("template");
-          template.innerHTML = /*html*/ `
-              <style>
-                :host {
-                  grid-area: page;
-                  width: 100%;
-                  height: 100%;
-                  margin: 0;
-                  padding: 0;
-                  display: grid;
-                  place-items: center;
-                  transition: all 1s ease-in-out;
-                }
-                .introduce {
-                  width: 100%;
-                  height: 100%;
-                  font-size: 2rem;
-                  font-weight: bolder;
-                  color: black;
-                  background-color: white;
-                  display: grid;
-                  place-items: center;
-                }
-                @media (prefers-color-scheme: dark) {
-                  .introduce {
-                    color: white;
-                    background-color: black;
-                  }
-                }
-                @media screen and (orientation: landscape) {
-                }
-              </style>
-            `;
-          this.attachShadow({ mode: "open" }).appendChild(template.content.cloneNode(true));
-          await globalThis.socketOpenPromise;
-          const response = await this.readKV({ index: ["dataName", "圣灯社区组织架构简介"] });
-          for await (const res of response) {
-            if (typeof res === "number") {
-              if (res === 0) {
-                const noIntroduce = document.createElement("div");
-                noIntroduce.className = "introduce";
-                noIntroduce.textContent = "暂无内容";
-                this.shadowRoot.appendChild(noIntroduce);
-              }
-            } else {
-              const introduce = await this.$start("ArticleDisplay", res);
-              introduce.className = "introduce";
-              this.shadowRoot.appendChild(introduce);
-            }
-          }
-        }
-      }
-      disconnectedCallback() { }
-    }
-    class LoginPage extends $WebBase {
-      constructor() { super() }
-      connectedCallback() {
-        secondaryWindow.dataset.live = "LoginBar";
-        if (this.firstConnected === undefined) {
-          this.firstConnected = true;
-          globalThis.loginPage = this;
-          const template = document.createElement("template");
-          template.innerHTML = /*html*/ `
-              <input id="UsernameInput" type="text" placeholder="用户名" />
-              <input id="PasswordInput" type="password" placeholder="密码" />
-              <button id="Login" type="button">
-                <svg width="34" height="34" viewBox="0 0 74 74" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="37" cy="37" r="35.5" stroke="currentColor" stroke-width="5"></circle>
-                  <path d="M25 35.5C24.1716 35.5 23.5 36.1716 23.5 37C23.5 37.8284 24.1716 38.5 25 38.5V35.5ZM49.0607 38.0607C49.6464 37.4749 49.6464 36.5251 49.0607 35.9393L39.5147 26.3934C38.9289 25.8076 37.9792 25.8076 37.3934 26.3934C36.8076 26.9792 36.8076 27.9289 37.3934 28.5147L45.8787 37L37.3934 45.4853C36.8076 46.0711 36.8076 47.0208 37.3934 47.6066C37.9792 48.1924 38.9289 48.1924 39.5147 47.6066L49.0607 38.0607ZM25 38.5L48 38.5V35.5L25 35.5V38.5Z" fill="currentColor" stroke="currentColor" stroke-width="5"></path>
-                </svg>
-              </button>
-              <style>
-                :host {
-                  grid-area: page;
-                  width: 100%;
-                  height: 100%;
-                  margin: 0;
-                  padding: 0;
-                  display: grid;
-                  grid-template-columns: 100%;
-                  grid-template-rows: 30% 10% 10% 20% 30%;
-                  place-items: center;
-                  border-radius: 2rem;
-                  z-index: 1;
-                  transition: all 1s ease-in-out;
-                }
-                input {
-                  border-radius: 9999px;
-                  outline: none;
-                  border: 0;
-                  font-size: 1rem;
-                  font-weight: bolder;
-                  color: black;
-                  background-color: #e2e2e2;
-                  padding: 15px 1rem;
-                  filter: drop-shadow(2px 4px 6px #015293);
-                  transition: all 0.25s ease-in-out;
-                }
-                input:focus {
-                  filter: drop-shadow(4px 8px 12px #015293);
-                  background-color: #fff;
-                }
-                #UsernameInput {
-                  grid-area: 2/1/3/2;
-                }
-                #PasswordInput {
-                  grid-area: 3/1/4/2;
-                }
-                #Login {
-                  grid-area: 4/1/5/2;
-                  cursor: pointer;
-                  font-weight: bolder;
-                  transition: all .2s;
-                  padding: 10px 10px;
-                  border-radius: 100px;
-                  color: white;
-                  background: #015293;
-                  border: 1px solid transparent;
-                  display: flex;
-                  align-items: center;
-                  font-size: 15px;
-                  filter: drop-shadow(2px 4px 6px black);
-                  transition: all 0.3s ease-in-out;
-                }
-                #Login:hover {
-                  padding: 10px 50px;
-                }
-                #Login > svg {
-                  width: 34px;
-                  color: white;
-                  overflow: visible;
-                  pointer-events: none;
-                  transition: all .3s ease-in-out;
-                }
-                #Login:hover > svg {
-                  transform: translateX(40px);
-                }
-                #Login:active {
-                  transform: scale(0.95);
-                }
-                @media (prefers-color-scheme: dark) {
-                  input {
-                    color: white;
-                    background-color: #141212;
-                    filter: drop-shadow(2px 4px 6px #dc3a3a);
-                  }
-                  input:focus {
-                    filter: drop-shadow(4px 8px 12px #dc3a3a);
-                    background-color: #000;
-                  }
-                  #Login {
-                    color: black;
-                    background: #dc3a3a;
-                  }
-                  #Login > svg {
-                    color: black;
-                  }
-                }
-                @media screen and (orientation: landscape) {
-                  :host {
-                    grid-template-rows: 20% 20% 20% 20% 20%;
-                  }
-                }
-              </style>
-            `;
-          this.attachShadow({ mode: "open" }).appendChild(template.content.cloneNode(true));
-          const UsernameInput = this.shadowRoot.getElementById("UsernameInput");
-          const PasswordInput = this.shadowRoot.getElementById("PasswordInput");
-          this.opClickEvents = (event) => {
-            switch (event.target.id) {
-              case "Login": {
-                if (UsernameInput.value === "root" && PasswordInput.value === "root") {
-                  secondaryWindow.resolveLogin("success");
-                  localStorage.setItem("login", "true");
-                  UsernameInput.value = "";
-                  PasswordInput.value = "";
-                } else {
-                  alert("用户名或密码错误");
-                }
-                break;
+                color: black;
               }
             }
-          };
-        }
-        this.shadowRoot.addEventListener("click", this.opClickEvents);
-      }
-      disconnectedCallback() {
-        this.shadowRoot.removeEventListener("click", this.opClickEvents);
-        const loginStatus = localStorage.getItem("login") || "false";
-        if ((loginStatus === "true") && (primaryWindow.previousPage[primaryWindow.previousPage.length - 1] === "LoginPage")) primaryWindow.previousPage.pop();
-      }
-    }
-    class UserPage extends $WebBase {
-      constructor() { super() }
-      connectedCallback() {
-        const loginStatus = localStorage.getItem("login") || "false";
-        if (loginStatus === "false") primaryWindow.dataset.page = primaryWindow.previousPage[primaryWindow.previousPage.length - 1];
-        secondaryWindow.dataset.live = "UserBar";
-        if (this.firstConnected === undefined) {
-          this.firstConnected = true;
-          globalThis.userPage = this;
-          const template = document.createElement("template");
-          template.innerHTML = /*html*/ `
-              <div>用户页</div>
-              <style>
-                :host {
-                  grid-area: page;
-                  width: 100%;
-                  height: 100%;
-                  margin: 0;
-                  padding: 0;
-                  display: grid;
-                  grid-template-columns: 100%;
-                  grid-template-rows: 30% 10% 10% 20% 30%;
-                  place-items: center;
-                  border-radius: 2rem;
-                  z-index: 1;
-                  transition: all 1s ease-in-out;
-                }
-                @media (prefers-color-scheme: dark) {
-                }
-                @media screen and (orientation: landscape) {
-                }
-              </style>
-            `;
-          this.attachShadow({ mode: "open" }).appendChild(template.content.cloneNode(true));
-        }
-      }
-      disconnectedCallback() {
-        const loginStatus = localStorage.getItem("login") || "false";
-        if ((loginStatus === "false") && (primaryWindow.previousPage[primaryWindow.previousPage.length - 1] === "UserPage")) primaryWindow.previousPage.pop();
-      }
-    }
-    class EditorPage extends $WebBase {
-      constructor() { super() }
-      connectedCallback() {
-        secondaryWindow.dataset.live = "EditBar";
-        if (this.firstConnected === undefined) {
-          this.firstConnected = true;
-          globalThis.editorPage = this;
-          const template = document.createElement("template");
-          template.innerHTML = /*html*/ `
-              <input id="Title" type="text" placeholder="标题" />
-              <textarea id="TextEditor" name="editorArea"></textarea>
-              <div id="Gallery"></div>
-              <style>
-                :host {
-                  grid-area: page;
-                  width: 100%;
-                  height: 100%;
-                  margin: 0;
-                  padding: 0;
-                  align-self: start;
-                  display: grid;
-                  grid-template-columns: 100%;
-                  grid-template-rows: 10% 90%;
-                  place-items: center;
-                  transition: all 1s ease-in-out;
-                }
-                button {
-                  width: 100%;
-                  height: 100%;
-                }
-                #Title {
-                  grid-area: 1/1/2/2;
-                  width: 100%;
-                  height: 100%;
-                  padding-left: 2rem;
-                  border: none;
-                  background-color: transparent;
-                  font-size: 2rem;
-                  font-weight: bolder;
-                  z-index: 1;
-                }
-                #TextEditor {
-                  grid-area: 2/1/3/2;
-                  width: 100%;
-                  height: 100%;
-                  border: none;
-                  background-color: transparent;
-                  z-index: 1;
-                }
-                #Gallery {
-                  grid-area: 1/1/3/2;
-                  width: 100%;
-                  height: 100%;
-                  margin: 0;
-                  padding: 0;
-                  display: flex;
-                  scroll-snap-type: x mandatory;
-                  place-items: center;
-                  overflow: scroll;
-                  transition: all 1s ease-in-out;
-                  z-index: 0;
-                }
-                #Gallery::-webkit-scrollbar {
-                  display: none;
-                }
-                #Gallery > img {
-                  width: 100%;
-                  height: 100%;
-                  object-fit: cover;
-                  flex-shrink: 0;
-                  scroll-snap-align: center;
-                  transition: all 1s ease-in-out;
-                }
-                @media (prefers-color-scheme: dark) {
-                }
-                @media screen and (orientation: landscape) {
-                }
-              </style>
-            `;
-          this.attachShadow({ mode: "open" }).appendChild(template.content.cloneNode(true));
-          const Title = this.shadowRoot.getElementById("Title");
-          const TextEditor = this.shadowRoot.getElementById("TextEditor");
-          const Gallery = this.shadowRoot.getElementById("Gallery");
-          document.addEventListener("fromBar", async (event) => {
-            switch (event.detail) {
-              case "addPicture": {
-                const input = document.createElement("input");
-                input.type = "file";
-                input.accept = "image/*";
-                input.multiple = true;
-                input.addEventListener("change", (event) => {
-                  const files = event.target.files;
-                  for (const file of files) {
-                    const reader = new FileReader();
-                    reader.readAsArrayBuffer(file);
-                    reader.onload = (event) => {
-                      const blob = new Blob([new Uint8Array(event.target.result)], { type: file.type });
-                      const img = document.createElement("img");
-                      img.indexName = file.name.split(".")[0] || "unknown";
-                      img.blob = blob;
-                      img.src = URL.createObjectURL(blob);
-                      Gallery.appendChild(img);
-                    };
-                  }
-                });
-                input.click();
-                break;
-              }
-              case "publish": {
-                const raw = {
-                  dataName: Title.value,
-                  dataType: "Document",
-                  dataFormat: "txt",
-                  dataValue: {
-                    textContent: TextEditor.value,
-                    pictureContent: {},
-                  }
-                };
-                for (const picture of Gallery.children) {
-                  raw.dataValue.pictureContent[picture.indexName] = picture.blob;
-                }
-                const progressBar = await this.$start("ProgressBar");
-                capsuleLogo.shadowRoot.appendChild(progressBar);
-                const createResult = await this.createKV(raw);
-                for await (const createSchedule of createResult) {
-                  progressBar.dataset.stage = parseFloat(createSchedule.status);
-                  if (progressBar.dataset.stage === "0") {
-                    alert("发布失败");
-                  };
-                  if (progressBar.dataset.stage === "100") {
-                    const article = await this.$start("ArticleDisplay", raw);
-                    article.className = "article";
-                    trendingPage.shadowRoot.appendChild(article);
-                  };
-                }
-                break;
+            @media screen and (orientation: landscape) {
+              :host {
+                width: 20%;
+                height: 14%;
+                margin-right: 10px;
+                justify-self: end;
               }
             }
-          });
-        }
+          </style>`;
       }
-      disconnectedCallback() { }
-    }
-    class BoardPage extends $WebBase {
-      constructor() { super() }
-      async connectedCallback() {
-        secondaryWindow.dataset.live = "BoardBar";
-        if (this.firstConnected === undefined) {
-          this.firstConnected = true;
-          globalThis.boardPage = this;
-          await this.$load("/add.button");
-          await this.$load("/bin.button");
-          const template = document.createElement("template");
-          template.innerHTML = /*html*/ `
-              <table>
-                <thead>
-                  <tr>
-                    <th column-name="checkBox">选择</th>
-                    <th column-name="projectName">数据归属</th>
-                    <th column-name="dataHash">数据哈希</th>
-                    <th column-name="dataName">数据名称</th>
-                    <th column-name="dataType">数据类型</th>
-                    <th column-name="dataFormat">数据格式</th>
-                    <th column-name="readLevel">读取权限</th>
-                    <th column-name="writeLevel">写入权限</th>
-                    <th column-name="shardCount">数据大小</th>
-                    <th column-name="createTime">数据创建时间</th>
-                    <th column-name="lastModifyTime">数据更新时间</th>
-                    <th column-name="dataValue">数据内容</th>
-                    <th column-name="otherValue">其他内容</th>
-                    <th column-name="manipulateButton">操作</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-                <tfoot>
-                  <tr>
-                    <td id="DataSize"></td>
-                    <td scope="row" colspan="12"></td>
-                    <td>
-                      <add-button id="AddData"></add-button>
-                      <bin-button id="DeleteAll" data-style="circle"></bin-button>
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-              <style>
-                :host {
-                  grid-area: page;
-                  width: 100%;
-                  height: 100%;
-                  margin: 0;
-                  padding: 0;
-                  align-self: center;
-                  display: grid;
-                  grid-template-columns: 100%;
-                  grid-template-rows: 100%;
-                  place-items: center;
-                  overflow: scroll;
-                  transition: all 1s ease-in-out;
-                }
-                :host::-webkit-scrollbar {
-                  display: none;
-                }
-                table {
-                  width: 100%;
-                  height: 100%;
-                  border-collapse: collapse;
-                  border-spacing: 0;
-                  place-self: start;
-                  text-align: center;
-                  color: black;
-                  background-color: white;
-                }
-                tr {
-                  height: 10vh;
-                }
-                th, td {
-                  width: 100%;
-                  height: 100%;
-                  padding: 0;
-                  text-wrap: nowrap;
-                  font-weight: bolder;
-                  background-color: white;
-                }
-                th:first-child, td:first-child {
-                  position: sticky;
-                  left: 0;
-                }
-                th:last-child, td:last-child {
-                  position: sticky;
-                  right: 0;
-                }
-                td:last-child {
-                  display: grid;
-                  grid-template-columns: 50% 50%;
-                  grid-template-rows: 100%;
-                  place-items: center;
-                }
-                thead tr th {
-                  position: sticky;
-                  top: 0;
-                }
-                thead > tr > th:first-child,
-                thead > tr > th:last-child {
-                  z-index: 1;
-                }
-                tfoot {
-                  position: sticky;
-                  bottom: 0;
-                }
-                #DataSize {
-                  text-align: start;
-                }
-                @media (prefers-color-scheme: dark) {
-                  table {
-                    color: white;
-                    background-color: black;
-                  }
-                  th, td {
-                    background-color: black;
-                  }
-                }
-                @media screen and (orientation: landscape) {
-                }
-              </style>
-            `;
-          this.attachShadow({ mode: "open" }).appendChild(template.content.cloneNode(true));
-          const theadIndex = ["checkBox", "projectName", "dataHash", "dataName", "dataType", "dataFormat", "readLevel", "writeLevel", "shardCount", "createTime", "lastModifyTime", "dataValue", "otherValue", "manipulateButton"];
-          const tbody = this.shadowRoot.querySelector("tbody");
-          const DataSize = this.shadowRoot.getElementById("DataSize");
-          this.opClickEvents = async (event) => {
-            switch (event.target.id) {
-              case "AddData": {
-                primaryWindow.dataset.page = "RawCard";
-                break;
-              }
-              case "DeleteAll": {
-                const response = await this.deleteKV();
-                for await (const res of response) {
-                  console.log(res);
-                }
-                break;
-              }
-              default: {
-                switch (event.target.className) {
-                  case "editButton": {
-                    const tr = event.target.parentNode.parentNode;
-                    // 将tr设置为可编辑
-                    if (tr.contentEditable === "true") {
-                      tr.contentEditable = false;
-                    } else {
-                      tr.contentEditable = true;
-                    }
-                    break;
-                  }
-                  case "deleteButton": {
-                    const tr = event.target.parentNode.parentNode;
-                    await this.deleteKV({ index: tr.key, accurate: true });
-                    tr.remove();
-                    break;
-                  }
-                }
-                break;
-              }
-            }
-          };
-          this.shadowRoot.addEventListener("click", this.opClickEvents);
-          await globalThis.socketOpenPromise;
-          const response = await this.readKV({ index: ["topShard"] });
-          for await (const res of response) {
-            if (typeof res === "number") {
-              DataSize.textContent = `数据量：${res}`;
-            } else {
-              if (res.value instanceof Uint8Array) {
-                console.log(res);
-              } else {
-                const value = structuredClone(res.value);
-                const tr = document.createElement("tr");
-                tr.key = res.key;
-                tr.versionstamp = res.versionstamp;
-                for (const index of theadIndex) {
-                  switch (index) {
-                    case "checkBox": {
-                      const td = document.createElement("td");
-                      const checkBox = await this.$start("LineCheckbox");
-                      td.appendChild(checkBox);
-                      tr.appendChild(td);
-                      break;
-                    }
-                    case "manipulateButton": {
-                      const td = document.createElement("td");
-                      const editButton = await this.$start("EditButton");
-                      editButton.classList.add("editButton");
-                      const deleteButton = await this.$start("BinButton", "rectangle");
-                      deleteButton.classList.add("deleteButton");
-                      td.appendChild(editButton);
-                      td.appendChild(deleteButton);
-                      tr.appendChild(td);
-                      break;
-                    }
-                    default: {
-                      const td = document.createElement("td");
-                      if (index === "dataValue" && value[index]) {
-                        td.textContent = JSON.stringify(await BoardPage.$deliver(value[index]));
-                      } else {
-                        td.textContent = value[index];
-                      }
-                      delete value[index];
-                      tr.appendChild(td);
-                      break;
-                    }
-                  }
-                }
-                // 判断value中是否还有其他属性
-                if (Object.keys(value).length > 0) {
-                  // 找到otherValue的td
-                  const otherValue = tr.querySelector("td:nth-last-child(2)");
-                  otherValue.textContent = JSON.stringify(value);
-                }
-                tbody.appendChild(tr);
-                // console.log(res);
-              }
-            }
-          }
-        }
-      }
-      disconnectedCallback() {
-        const loginStatus = localStorage.getItem("login") || "false";
-        if ((loginStatus === "false") && (primaryWindow.previousPage[primaryWindow.previousPage.length - 1] === "BoardPage")) primaryWindow.previousPage.pop();
-      }
-    }
+    } codeMap.set("$CapsuleLogo", $CapsuleLogo);
 
-    // #endregion Mess
+
+    // #endregion Source
+
+
     httpServer();
   }
 })();
